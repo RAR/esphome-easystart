@@ -1,0 +1,72 @@
+# Micro-Air EasyStart over BLE, read directly by an ESP32.
+#
+# Put this ESP32 within BLE range of the A/C unit. The EasyStart is powered from
+# the compressor circuit, so it only advertises while the A/C has power -
+# ble_client reconnects on its own when it comes back.
+
+esphome:
+  name: easystart
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+esp32_ble_tracker:
+
+ble_client:
+  - mac_address: AA:BB:CC:DD:EE:FF   # <- your EasyStart_XXXX
+    id: easystart_ble
+
+easystart:
+  id: easystart_hub
+  ble_client_id: easystart_ble
+  update_interval: 10s
+
+sensor:
+  - platform: easystart
+    easystart_id: easystart_hub
+    live_current:
+      name: "EasyStart Current"
+    last_start_peak:
+      name: "EasyStart Last Start Peak"
+    line_frequency:
+      name: "EasyStart Line Frequency"
+    learned_starts:
+      name: "EasyStart Learned Starts"
+    total_starts:
+      name: "EasyStart Total Starts"
+    total_faults:
+      name: "EasyStart Total Faults"
+    scpt_remaining:
+      name: "EasyStart SCPT Remaining"
+
+text_sensor:
+  - platform: easystart
+    easystart_id: easystart_hub
+    system_state:
+      name: "EasyStart State"
+    model:
+      name: "EasyStart Model"
+    firmware:
+      name: "EasyStart Firmware"
+
+binary_sensor:
+  - platform: easystart
+    easystart_id: easystart_hub
+    fault:
+      name: "EasyStart Fault"
