@@ -101,6 +101,7 @@ Meanwhile:
 | Entity | State |
 |---|---|
 | `current` | `0` A - the unit is drawing nothing |
+| `line_frequency` | `0` Hz - there is no line to measure |
 | `last_start_peak` | **retains** its last value |
 | other numeric sensors | `unknown` (the component publishes NaN) |
 | `system_state` | the string `Disconnected` |
@@ -108,9 +109,10 @@ Meanwhile:
 | `model`, `firmware` | retain their last value (static identity) |
 | `fault` | **retains** its last value |
 
-`current` reports 0 because that is physically what an unpowered unit draws, and
-it keeps the HA history graph continuous. `last_start_peak` describes the last
-start the unit performed, which is still the last start once it powers down.
+`current` and `line_frequency` report 0 because that is physically what an
+unpowered unit reads, and it keeps the HA history graphs continuous.
+`last_start_peak` describes the last start the unit performed, which is still
+the last start once it powers down.
 
 ESPHome binary sensors have no unknown state, so `fault` stays at whatever it
 last published. Gate automations on `system_state != 'Disconnected'` rather

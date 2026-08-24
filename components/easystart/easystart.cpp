@@ -265,13 +265,17 @@ void EasyStart::publish_eeprom_() {
 
 void EasyStart::mark_unavailable_() {
 #ifdef USE_SENSOR
-  // A unit that is off draws nothing, so report 0 A rather than a gap.
-  if (this->live_current_ != nullptr)
-    this->live_current_->publish_state(0.0f);
+  // A unit that is off draws no current and has no line to measure, so report
+  // zero for both rather than leaving a gap in the history.
+  sensor::Sensor *zero[] = {this->live_current_, this->line_frequency_};
+  for (auto *s : zero) {
+    if (s != nullptr)
+      s->publish_state(0.0f);
+  }
   // last_start_peak_ is deliberately absent: it describes the last start, which
   // is still true after the unit powers down.
-  sensor::Sensor *unknown[] = {this->line_frequency_, this->learned_starts_, this->total_starts_,
-                               this->total_faults_,   this->scpt_remaining_, this->state_code_};
+  sensor::Sensor *unknown[] = {this->learned_starts_, this->total_starts_, this->total_faults_,
+                               this->scpt_remaining_, this->state_code_};
   for (auto *s : unknown) {
     if (s != nullptr)
       s->publish_state(NAN);
