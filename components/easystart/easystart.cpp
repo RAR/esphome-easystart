@@ -3,6 +3,7 @@
 #ifdef USE_ESP32
 
 #include "esphome/core/log.h"
+#include <cinttypes>
 #include <cstring>
 
 namespace esphome {
@@ -56,7 +57,7 @@ void EasyStart::loop() {
     return;
   if (millis() < this->deadline_)
     return;
-  ESP_LOGW(TAG, "Timed out after %ums with %u bytes buffered", READ_TIMEOUT_MS, this->buffer_len_);
+  ESP_LOGW(TAG, "Timed out after %" PRIu32 "ms with %u bytes buffered", READ_TIMEOUT_MS, this->buffer_len_);
   this->finish_(false);
 }
 

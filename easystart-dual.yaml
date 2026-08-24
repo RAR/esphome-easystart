@@ -33,10 +33,12 @@ external_components:
       type: local
       path: components
 
+esp32_ble:
+  max_connections: 3
+
 esp32_ble_tracker:
   scan_parameters:
     active: true
-  max_connections: 3
 
 ble_client:
   - mac_address: ${mac_upstairs}
