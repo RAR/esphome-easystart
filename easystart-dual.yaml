@@ -1,0 +1,121 @@
+# Two EasyStarts read by one ESP32 (M5Stack AtomS3R here).
+#
+# Verified working: two units polled concurrently at 10s with no contention.
+# The limit is RF range, not the ESP32 - this only works if the node has usable
+# RSSI to BOTH units, which in practice means they are physically near each
+# other. ESPHome allows 3 concurrent BLE connections by default.
+#
+# The per-client RSSI sensors are a placement aid: watch them while moving the
+# node, and aim for better than -75 dBm. Around -85 a ~1KB EEPROM read (roughly
+# 50 notifications at the negotiated MTU of 23) starts risking a retry.
+
+substitutions:
+  name: easystart-dual
+  mac_upstairs: "AA:BB:CC:DD:EE:FF"   # EasyStart_XXXX
+  mac_downstairs: "11:22:33:44:55:66"   # EasyStart_YYYY
+
+esphome:
+  name: ${name}
+  friendly_name: EasyStart
+
+esp32:
+  board: m5stack-atoms3
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+  max_connections: 3
+
+ble_client:
+  - mac_address: ${mac_upstairs}
+    id: ble_upstairs
+  - mac_address: ${mac_downstairs}
+    id: ble_downstairs
+
+easystart:
+  - id: hub_upstairs
+    ble_client_id: ble_upstairs
+    update_interval: 10s
+  - id: hub_downstairs
+    ble_client_id: ble_downstairs
+    update_interval: 10s
+
+sensor:
+  - platform: easystart
+    easystart_id: hub_upstairs
+    live_current:
+      name: "Upstairs Current"
+    last_start_peak:
+      name: "Upstairs Last Start Peak"
+    line_frequency:
+      name: "Upstairs Line Frequency"
+    total_starts:
+      name: "Upstairs Total Starts"
+    total_faults:
+      name: "Upstairs Total Faults"
+  - platform: ble_client
+    ble_client_id: ble_upstairs
+    type: rssi
+    name: "Upstairs RSSI"
+    update_interval: 120s
+    entity_category: diagnostic
+  - platform: ble_client
+    ble_client_id: ble_downstairs
+    type: rssi
+    name: "Downstairs RSSI"
+    update_interval: 120s
+    entity_category: diagnostic
+  - platform: easystart
+    easystart_id: hub_downstairs
+    live_current:
+      name: "Downstairs Current"
+    last_start_peak:
+      name: "Downstairs Last Start Peak"
+    line_frequency:
+      name: "Downstairs Line Frequency"
+    total_starts:
+      name: "Downstairs Total Starts"
+    total_faults:
+      name: "Downstairs Total Faults"
+
+text_sensor:
+  - platform: easystart
+    easystart_id: hub_upstairs
+    system_state:
+      name: "Upstairs State"
+    model:
+      name: "Upstairs Model"
+  - platform: easystart
+    easystart_id: hub_downstairs
+    system_state:
+      name: "Downstairs State"
+    model:
+      name: "Downstairs Model"
+
+binary_sensor:
+  - platform: easystart
+    easystart_id: hub_upstairs
+    fault:
+      name: "Upstairs Fault"
+  - platform: easystart
+    easystart_id: hub_downstairs
+    fault:
+      name: "Downstairs Fault"

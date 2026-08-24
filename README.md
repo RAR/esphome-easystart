@@ -23,7 +23,8 @@ components/easystart/
   text_sensor.py     state / model / firmware
   binary_sensor.py   fault flag
   easystart.h/.cpp   the BLE protocol itself
-easystart.yaml       example configuration
+easystart.yaml       example configuration (one unit)
+easystart-dual.yaml  example: two units on one ESP32, with RSSI diagnostics
 tools/easystart_ble.py   standalone Python client (scan / read from a laptop)
 easystart-ble-protocol.md   the reverse-engineered protocol
 ```
@@ -78,6 +79,36 @@ logs every device it sees, or use `python3 tools/easystart_ble.py scan` from a l
 | binary_sensor | `fault` | true when state is not Normal or Short Cycle Delay |
 
 All keys are optional — declare only what you want.
+
+## Two units on one ESP32
+
+Supported and verified working - two EasyStarts polled concurrently at 10s with
+no contention. See `easystart-dual.yaml`. ESPHome allows 3 concurrent BLE
+connections by default, so the limit is RF range, not the ESP32: the node needs
+usable RSSI to both units, which in practice means they sit near each other.
+
+That example also adds a per-client `ble_client` RSSI sensor for each unit,
+which is the practical way to choose a mounting spot - watch both numbers while
+moving the node. Aim for better than -75 dBm; around -85 a ~1KB EEPROM read
+(roughly 50 notifications at the negotiated MTU of 23) starts risking a retry.
+
+## When a unit is powered off
+
+The EasyStart is powered from the compressor circuit, so it stops advertising
+whenever the A/C is off. `ble_client` reconnects on its own when it returns.
+Meanwhile:
+
+| Entity | State |
+|---|---|
+| numeric sensors | `unknown` (the component publishes NaN) |
+| `system_state` | the string `Disconnected` |
+| `ble_client` RSSI | `unknown`, plus a warning each poll |
+| `model`, `firmware` | retain their last value (static identity) |
+| `fault` | **retains** its last value |
+
+ESPHome binary sensors have no unknown state, so `fault` stays at whatever it
+last published. Gate automations on `system_state != 'Disconnected'` rather
+than trusting `fault` on its own.
 
 ## Behaviour notes
 
