@@ -36,14 +36,14 @@ void EasyStart::dump_config() {
 
 void EasyStart::update() {
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    // Not connected - the EasyStart is only powered when the A/C circuit is.
+    // Only powered while the A/C circuit is.
     return;
   }
   if (this->pending_ != Pending::NONE) {
     ESP_LOGD(TAG, "Previous read still in flight, skipping this poll");
     return;
   }
-  // One-shot: pull the EEPROM image once per connection for the static info.
+  // Static info: read once per connection.
   if (!this->eeprom_read_done_) {
     this->send_command_("{\"Cmd\": ReadEEP}", Pending::EEP);
     return;
@@ -69,9 +69,7 @@ bool EasyStart::send_command_(const char *cmd, Pending kind) {
   this->pending_ = kind;
   this->deadline_ = millis() + READ_TIMEOUT_MS;
 
-  // NOTE: the payload is the vendor's pseudo-JSON literal - the value is
-  // unquoted and this is NOT valid JSON. Send the exact bytes.
-  // Write by handle: the characteristic object may already have been freed.
+  // Vendor pseudo-JSON: the value is unquoted, so send the exact bytes.
   auto status = esp_ble_gattc_write_char(this->parent()->get_gattc_if(), this->parent()->get_conn_id(),
                                          this->write_handle_, (uint16_t) strlen(cmd), (uint8_t *) cmd,
                                          this->write_type_, ESP_GATT_AUTH_REQ_NONE);
@@ -88,9 +86,8 @@ void EasyStart::handle_notify_(const uint8_t *data, uint16_t len) {
   if (this->pending_ == Pending::NONE || len == 0)
     return;
 
-  // A transfer ends with an ASCII "Success"/"Fail" marker. That marker may
-  // arrive in its own packet OR appended to the tail of a data packet, so scan
-  // the whole payload - not just the head - and keep any bytes preceding it.
+  // The "Success"/"Fail" marker may arrive alone or appended to a data packet,
+  // so scan the whole payload and keep any bytes preceding it.
   int marker = -1;
   bool ok = false;
   for (uint16_t i = 0; i < len; i++) {
@@ -108,9 +105,7 @@ void EasyStart::handle_notify_(const uint8_t *data, uint16_t len) {
 
   uint16_t payload = (marker >= 0) ? (uint16_t) marker : len;
   if (payload > 0) {
-    // buffer_ is EEP_LEN for both transfer types; the live block turned out to
-    // be larger than the vendor app's 20-byte buffer suggested, so don't cap it
-    // at LIVE_LEN - just validate the length when parsing.
+    // One buffer for both transfer types; length is validated when parsing.
     if (this->buffer_len_ + payload > EEP_LEN) {
       ESP_LOGW(TAG, "Overflow: %u + %u > %u, discarding read", this->buffer_len_, payload, EEP_LEN);
       this->finish_(false);
@@ -128,12 +123,9 @@ void EasyStart::handle_notify_(const uint8_t *data, uint16_t len) {
 }
 
 void EasyStart::trim_status_tail_() {
-  // A read ends with an ASCII status reply such as {"Sts": "Success"}. The
-  // negotiated MTU is small (23 on these units), so its leading bytes arrive in
-  // their own notification before the one carrying the marker, and land in the
-  // data buffer. Strip them - but only from the tail, and only when the run is
-  // entirely printable, so a stray 0x7B 0x22 pair inside binary EEPROM data
-  // can't truncate a good read.
+  // Reads end with an ASCII status reply like {"Sts": "Success"}. At MTU 23 its
+  // leading bytes arrive before the marker packet and land in the data buffer.
+  // Tail-only and printable-only, so a stray {" inside binary data is safe.
   const uint16_t MAX_TAIL = 48;
   uint16_t start = this->buffer_len_ > MAX_TAIL ? this->buffer_len_ - MAX_TAIL : 0;
   for (uint16_t i = start; i + 1 < this->buffer_len_; i++) {
@@ -217,9 +209,8 @@ void EasyStart::publish_live_() {
 }
 
 bool EasyStart::eeprom_looks_sane_() const {
-  // The vendor app allocates 1100 bytes of headroom, but the device returns
-  // only its actual EEPROM (1KB-class AVR). Require just enough to cover every
-  // field we read, and no more than our buffer.
+  // Length varies by model (963 and 1023 seen); the app's 1100 is headroom.
+  // Require only enough to cover the fields read.
   if (this->buffer_len_ <= EEP_SCPT || this->buffer_len_ > EEP_LEN)
     return false;
   // Bytes 2-8 are the ASCII board code; junk there means we lost a chunk.
@@ -232,8 +223,7 @@ bool EasyStart::eeprom_looks_sane_() const {
 }
 
 void EasyStart::publish_eeprom_() {
-  // The protocol has no length header or chunk sequence numbers, so a dropped
-  // notification would silently corrupt the image. Validate before trusting it.
+  // No length header or chunk sequencing, so a dropped packet corrupts silently.
   if (!this->eeprom_looks_sane_()) {
     ESP_LOGW(TAG, "EEPROM read failed validation (%u bytes), will retry next poll", this->buffer_len_);
     return;

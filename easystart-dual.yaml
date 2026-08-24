@@ -1,14 +1,8 @@
 # Two EasyStarts read by one ESP32 (M5Stack AtomS3R here).
 #
-# Verified working: two units polled concurrently at 10s with no contention.
-# The limit is RF range, not the ESP32 - this only works if the node has usable
-# RSSI to BOTH units, which in practice means they are physically near each
-# other. ESPHome allows 3 concurrent BLE connections by default.
-#
-# The per-client RSSI sensors are a placement aid: watch them while moving the
-# node, and aim for better than -75 dBm. Around -85 a ~1KB EEPROM read (roughly
-# 50 notifications at the negotiated MTU of 23) starts risking a retry.
-
+# Verified working, polled concurrently at 10s with no contention. The limit is
+# RF range, not the ESP32: the node needs usable RSSI to BOTH units. The RSSI
+# sensors are a placement aid - see README.md.
 substitutions:
   name: easystart-dual
   mac_upstairs: "AA:BB:CC:DD:EE:FF"   # EasyStart_XXXX
