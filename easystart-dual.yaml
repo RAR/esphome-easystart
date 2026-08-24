@@ -11,6 +11,13 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: EasyStart
+  # One HA device per unit, so the entities group under the A/C they belong to
+  # instead of all hanging off the ESP32.
+  devices:
+    - id: dev_upstairs
+      name: Upstairs EasyStart
+    - id: dev_downstairs
+      name: Downstairs EasyStart
 
 esp32:
   board: m5stack-atoms3
@@ -58,64 +65,84 @@ sensor:
   - platform: easystart
     easystart_id: hub_upstairs
     live_current:
-      name: "Upstairs Current"
+      name: "Current"
+      device_id: dev_upstairs
     last_start_peak:
-      name: "Upstairs Last Start Peak"
+      name: "Last Start Peak"
+      device_id: dev_upstairs
     line_frequency:
-      name: "Upstairs Line Frequency"
+      name: "Line Frequency"
+      device_id: dev_upstairs
     total_starts:
-      name: "Upstairs Total Starts"
+      name: "Total Starts"
+      device_id: dev_upstairs
     total_faults:
-      name: "Upstairs Total Faults"
+      name: "Total Faults"
+      device_id: dev_upstairs
   - platform: ble_client
     ble_client_id: ble_upstairs
     type: rssi
-    name: "Upstairs RSSI"
+    name: "RSSI"
+    device_id: dev_upstairs
     update_interval: 120s
     entity_category: diagnostic
   - platform: ble_client
     ble_client_id: ble_downstairs
     type: rssi
-    name: "Downstairs RSSI"
+    name: "RSSI"
+    device_id: dev_downstairs
     update_interval: 120s
     entity_category: diagnostic
   - platform: easystart
     easystart_id: hub_downstairs
     live_current:
-      name: "Downstairs Current"
+      name: "Current"
+      device_id: dev_downstairs
     last_start_peak:
-      name: "Downstairs Last Start Peak"
+      name: "Last Start Peak"
+      device_id: dev_downstairs
     line_frequency:
-      name: "Downstairs Line Frequency"
+      name: "Line Frequency"
+      device_id: dev_downstairs
     total_starts:
-      name: "Downstairs Total Starts"
+      name: "Total Starts"
+      device_id: dev_downstairs
     total_faults:
-      name: "Downstairs Total Faults"
+      name: "Total Faults"
+      device_id: dev_downstairs
 
 text_sensor:
   - platform: easystart
     easystart_id: hub_upstairs
     system_state:
-      name: "Upstairs State"
+      name: "State"
+      device_id: dev_upstairs
     model:
-      name: "Upstairs Model"
+      name: "Model"
+      device_id: dev_upstairs
     firmware:
-      name: "Upstairs Firmware"
+      name: "Firmware"
+      device_id: dev_upstairs
   - platform: easystart
     easystart_id: hub_downstairs
     system_state:
-      name: "Downstairs State"
+      name: "State"
+      device_id: dev_downstairs
     model:
-      name: "Downstairs Model"
+      name: "Model"
+      device_id: dev_downstairs
     firmware:
-      name: "Downstairs Firmware"
+      name: "Firmware"
+      device_id: dev_downstairs
 
 binary_sensor:
   - platform: easystart
     easystart_id: hub_upstairs
     fault:
-      name: "Upstairs Fault"
+      name: "Fault"
+      device_id: dev_upstairs
   - platform: easystart
     easystart_id: hub_downstairs
     fault:
-      name: "Downstairs Fault"
+      name: "Fault"
+      device_id: dev_downstairs

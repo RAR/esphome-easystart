@@ -92,6 +92,14 @@ which is the practical way to choose a mounting spot - watch both numbers while
 moving the node. Aim for better than -75 dBm; around -85 a ~1KB EEPROM read
 (roughly 50 notifications at the negotiated MTU of 23) starts risking a retry.
 
+It declares an ESPHome sub-device per unit and assigns every entity to it with
+`device_id`, so Home Assistant shows two devices linked to the ESP32 rather than
+one device with both units' entities mixed together. That lets the entity names
+drop their `Upstairs`/`Downstairs` prefix - HA composes the name from the device.
+Note that HA's device-registry `model` and `sw_version` fields cannot be set this
+way (ESPHome sub-devices only carry a name and an area), so the board code and
+firmware version stay diagnostic entities.
+
 ## When a unit is powered off
 
 The EasyStart is powered from the compressor circuit, so it stops advertising
