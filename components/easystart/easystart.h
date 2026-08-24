@@ -81,10 +81,14 @@ class EasyStart : public PollingComponent, public ble_client::BLEClientNode {
   void publish_eeprom_();
   void mark_unavailable_();
   bool eeprom_looks_sane_() const;
+  void trim_status_tail_();
 
+  // Handles only - NEVER cache BLECharacteristic*. Setting node_state to
+  // ESTABLISHED lets BLEClientBase free the service/characteristic objects,
+  // so a cached pointer dangles on the next write (use-after-free).
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
-  ble_client::BLECharacteristic *write_char_{nullptr};
+  esp_gatt_write_type_t write_type_{ESP_GATT_WRITE_TYPE_RSP};
 
   Pending pending_{Pending::NONE};
   uint32_t deadline_{0};

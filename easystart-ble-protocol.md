@@ -23,6 +23,12 @@ Sources:
 
 ---
 
+> **Hardware-verified 2026-08-23** against two live units:
+> `EasyStart_1421` (368ULBT "368 - Legacy", fw 29) and
+> `EasyStart_F488` (398ULBT "398 - Flex", fw 36), both read concurrently by a
+> single ESP32-S3. Items marked *(confirmed)* were observed on the wire;
+> everything else is from the APK.
+
 ## 1. Transport
 
 RedBearLab-style BLE UART service — one write characteristic, one notify
@@ -124,9 +130,29 @@ does not echo the new value in the ACK.
 
 ---
 
+### Confirmed on hardware
+
+- **Negotiated MTU is 23** on both units, i.e. 20-byte notifications. The vendor
+  app requests 517 and gets whatever the peripheral grants; do not assume large
+  chunks. A ~1 KB EEPROM read arrives as roughly 50 notifications.
+- **Advertised address type is PUBLIC**, despite both MACs having the two high
+  bits of the first octet set (`E9:59:D3:CE:56:FA`, `EE:7A:AB:EB:5A:23`).
+- **A read is terminated by an ASCII JSON status reply**, not a bare word. The
+  observed reply begins `{"Sts": ` and the `Success` the app tests for lives
+  inside it. At MTU 23 that reply is split across notifications, so its leading
+  bytes arrive *before* the packet carrying `Success` and a naive reader appends
+  them to the data buffer. Strip a trailing printable run beginning with `{"`.
+- **Transfer lengths are not fixed.** The app's buffers (20 and 1100 bytes) are
+  allocations, not wire lengths. Observed after trimming the status tail: live
+  block **18 bytes**; EEPROM **963 bytes** (368/fw29) and **1023 bytes**
+  (398/fw36). Validate "long enough for the fields you read", never an exact
+  length.
+- **Two units on one ESP32 works.** Both were polled concurrently at 10 s with
+  no contention, using two `ble_client` + two component instances.
+
 ## 4. Live data block (`ReadLive`)
 
-20-byte buffer; the app uses bytes 2–17. All multi-byte values are **unsigned
+**18 bytes on the wire** *(confirmed)*; the app allocates 20 and uses 2–17. All multi-byte values are **unsigned
 little-endian**. Decoded in `Status.onCreateView$lambda$2`; labels from
 `res/values/strings.xml`.
 
@@ -166,7 +192,9 @@ if the previous one has not completed.
 
 ## 5. EEPROM image (`ReadEEP`)
 
-1100 bytes. The app only interprets four regions:
+Length varies by model/firmware *(confirmed: 963 and 1023 bytes)*; the app
+allocates 1100 as headroom. It interprets four regions, all well inside even
+the smallest image observed:
 
 | Offset | Type | Field |
 |---:|---|---|

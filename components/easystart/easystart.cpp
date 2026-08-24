@@ -61,7 +61,7 @@ void EasyStart::loop() {
 }
 
 bool EasyStart::send_command_(const char *cmd, Pending kind) {
-  if (this->write_char_ == nullptr) {
+  if (this->write_handle_ == 0) {
     ESP_LOGW(TAG, "Write characteristic not resolved");
     return false;
   }
@@ -69,14 +69,12 @@ bool EasyStart::send_command_(const char *cmd, Pending kind) {
   this->pending_ = kind;
   this->deadline_ = millis() + READ_TIMEOUT_MS;
 
-  // Pick the write type the peripheral actually advertises.
-  auto write_type = (this->write_char_->properties & ESP_GATT_CHAR_PROP_BIT_WRITE)
-                        ? ESP_GATT_WRITE_TYPE_RSP
-                        : ESP_GATT_WRITE_TYPE_NO_RSP;
-
   // NOTE: the payload is the vendor's pseudo-JSON literal - the value is
   // unquoted and this is NOT valid JSON. Send the exact bytes.
-  auto status = this->write_char_->write_value((uint8_t *) cmd, (int16_t) strlen(cmd), write_type);
+  // Write by handle: the characteristic object may already have been freed.
+  auto status = esp_ble_gattc_write_char(this->parent()->get_gattc_if(), this->parent()->get_conn_id(),
+                                         this->write_handle_, (uint16_t) strlen(cmd), (uint8_t *) cmd,
+                                         this->write_type_, ESP_GATT_AUTH_REQ_NONE);
   if (status != ESP_OK) {
     ESP_LOGW(TAG, "Write of %s failed, status=%d", cmd, status);
     this->finish_(false);
@@ -90,35 +88,79 @@ void EasyStart::handle_notify_(const uint8_t *data, uint16_t len) {
   if (this->pending_ == Pending::NONE || len == 0)
     return;
 
-  // Two packet flavours: an ASCII terminator containing "Success"/"Fail" ends
-  // the transfer, anything else is raw payload to append.
-  char text[32];
-  uint16_t n = len < sizeof(text) - 1 ? len : sizeof(text) - 1;
-  memcpy(text, data, n);
-  text[n] = '\0';
-  if (strstr(text, "Success") != nullptr) {
-    this->finish_(true);
-    return;
-  }
-  if (strstr(text, "Fail") != nullptr) {
-    ESP_LOGW(TAG, "Device reported failure: %s", text);
-    this->finish_(false);
-    return;
+  // A transfer ends with an ASCII "Success"/"Fail" marker. That marker may
+  // arrive in its own packet OR appended to the tail of a data packet, so scan
+  // the whole payload - not just the head - and keep any bytes preceding it.
+  int marker = -1;
+  bool ok = false;
+  for (uint16_t i = 0; i < len; i++) {
+    if (len - i >= 7 && memcmp(data + i, "Success", 7) == 0) {
+      marker = (int) i;
+      ok = true;
+      break;
+    }
+    if (len - i >= 4 && memcmp(data + i, "Fail", 4) == 0) {
+      marker = (int) i;
+      ok = false;
+      break;
+    }
   }
 
-  uint16_t cap = (this->pending_ == Pending::EEP) ? EEP_LEN : LIVE_LEN;
-  if (this->buffer_len_ + len > cap) {
-    ESP_LOGW(TAG, "Overflow: %u + %u > %u, discarding read", this->buffer_len_, len, cap);
-    this->finish_(false);
-    return;
+  uint16_t payload = (marker >= 0) ? (uint16_t) marker : len;
+  if (payload > 0) {
+    // buffer_ is EEP_LEN for both transfer types; the live block turned out to
+    // be larger than the vendor app's 20-byte buffer suggested, so don't cap it
+    // at LIVE_LEN - just validate the length when parsing.
+    if (this->buffer_len_ + payload > EEP_LEN) {
+      ESP_LOGW(TAG, "Overflow: %u + %u > %u, discarding read", this->buffer_len_, payload, EEP_LEN);
+      this->finish_(false);
+      return;
+    }
+    memcpy(this->buffer_ + this->buffer_len_, data, payload);
+    this->buffer_len_ += payload;
   }
-  memcpy(this->buffer_ + this->buffer_len_, data, len);
-  this->buffer_len_ += len;
+
+  if (marker >= 0) {
+    if (!ok)
+      ESP_LOGW(TAG, "Device reported failure after %u bytes", this->buffer_len_);
+    this->finish_(ok);
+  }
+}
+
+void EasyStart::trim_status_tail_() {
+  // A read ends with an ASCII status reply such as {"Sts": "Success"}. The
+  // negotiated MTU is small (23 on these units), so its leading bytes arrive in
+  // their own notification before the one carrying the marker, and land in the
+  // data buffer. Strip them - but only from the tail, and only when the run is
+  // entirely printable, so a stray 0x7B 0x22 pair inside binary EEPROM data
+  // can't truncate a good read.
+  const uint16_t MAX_TAIL = 48;
+  uint16_t start = this->buffer_len_ > MAX_TAIL ? this->buffer_len_ - MAX_TAIL : 0;
+  for (uint16_t i = start; i + 1 < this->buffer_len_; i++) {
+    if (this->buffer_[i] != '{' || this->buffer_[i + 1] != '"')
+      continue;
+    bool printable = true;
+    for (uint16_t j = i; j < this->buffer_len_; j++) {
+      uint8_t ch = this->buffer_[j];
+      if (ch < 0x20 || ch > 0x7E) {
+        printable = false;
+        break;
+      }
+    }
+    if (printable) {
+      ESP_LOGV(TAG, "Trimmed %u trailing status bytes", this->buffer_len_ - i);
+      this->buffer_len_ = i;
+      return;
+    }
+  }
 }
 
 void EasyStart::finish_(bool success) {
   auto kind = this->pending_;
   this->pending_ = Pending::NONE;
+
+  if (success)
+    this->trim_status_tail_();
 
   if (!success) {
     if (kind == Pending::LIVE)
@@ -138,6 +180,9 @@ void EasyStart::publish_live_() {
     this->mark_unavailable_();
     return;
   }
+  ESP_LOGV(TAG, "Live block %u bytes: %s", this->buffer_len_,
+           format_hex_pretty(this->buffer_, this->buffer_len_).c_str());
+
   const uint8_t *b = this->buffer_;
   uint8_t code = b[2];
   uint16_t period = le16(b + 6);
@@ -172,7 +217,10 @@ void EasyStart::publish_live_() {
 }
 
 bool EasyStart::eeprom_looks_sane_() const {
-  if (this->buffer_len_ != EEP_LEN)
+  // The vendor app allocates 1100 bytes of headroom, but the device returns
+  // only its actual EEPROM (1KB-class AVR). Require just enough to cover every
+  // field we read, and no more than our buffer.
+  if (this->buffer_len_ <= EEP_SCPT || this->buffer_len_ > EEP_LEN)
     return false;
   // Bytes 2-8 are the ASCII board code; junk there means we lost a chunk.
   for (uint16_t i = EEP_MODEL_OFF; i < EEP_MODEL_OFF + EEP_MODEL_LEN; i++) {
@@ -213,7 +261,8 @@ void EasyStart::publish_eeprom_() {
     model = "399 - Breeze";
   }
 
-  ESP_LOGI(TAG, "Board %s (%s), fw %u, SMask 0x%02X, FMask 0x%02X, SCPT %u min", code, model,
+  ESP_LOGI(TAG, "EEPROM %u bytes; Board %s (%s), fw %u, SMask 0x%02X, FMask 0x%02X, SCPT %u min",
+           this->buffer_len_, code, model,
            this->buffer_[EEP_FW_VER], this->buffer_[EEP_SMASK], this->buffer_[EEP_FMASK], this->buffer_[EEP_SCPT]);
 
 #ifdef USE_TEXT_SENSOR
@@ -247,8 +296,8 @@ void EasyStart::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t ga
       this->node_state = espbt::ClientState::IDLE;
       this->pending_ = Pending::NONE;
       this->buffer_len_ = 0;
-      this->write_char_ = nullptr;
       this->notify_handle_ = 0;
+      this->write_handle_ = 0;
       // Re-read the EEPROM on the next connection - it may be a different unit.
       this->eeprom_read_done_ = false;
       this->mark_unavailable_();
@@ -263,8 +312,11 @@ void EasyStart::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t ga
         break;
       }
       this->notify_handle_ = notify_chr->handle;
-      this->write_char_ = write_chr;
       this->write_handle_ = write_chr->handle;
+      // Capture the write type now, while the characteristic object is alive.
+      this->write_type_ = (write_chr->properties & ESP_GATT_CHAR_PROP_BIT_WRITE)
+                              ? ESP_GATT_WRITE_TYPE_RSP
+                              : ESP_GATT_WRITE_TYPE_NO_RSP;
 
       // register_for_notify writes the CCCD for us.
       auto status = esp_ble_gattc_register_for_notify(this->parent()->get_gattc_if(),
