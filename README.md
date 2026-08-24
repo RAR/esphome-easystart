@@ -100,11 +100,17 @@ Meanwhile:
 
 | Entity | State |
 |---|---|
-| numeric sensors | `unknown` (the component publishes NaN) |
+| `current` | `0` A - the unit is drawing nothing |
+| `last_start_peak` | **retains** its last value |
+| other numeric sensors | `unknown` (the component publishes NaN) |
 | `system_state` | the string `Disconnected` |
 | `ble_client` RSSI | `unknown`, plus a warning each poll |
 | `model`, `firmware` | retain their last value (static identity) |
 | `fault` | **retains** its last value |
+
+`current` reports 0 because that is physically what an unpowered unit draws, and
+it keeps the HA history graph continuous. `last_start_peak` describes the last
+start the unit performed, which is still the last start once it powers down.
 
 ESPHome binary sensors have no unknown state, so `fault` stays at whatever it
 last published. Gate automations on `system_state != 'Disconnected'` rather
@@ -114,8 +120,7 @@ than trusting `fault` on its own.
 
 - **The EasyStart is powered from the compressor circuit.** It only advertises
   while the A/C has power. `ble_client` reconnects by itself; on disconnect the
-  numeric sensors publish `NAN` (unknown in HA) and `system_state` becomes
-  `Disconnected`, rather than going stale.
+  sensors go to the states in the table above rather than going stale.
 - **Model and firmware come from a 1100-byte EEPROM dump**, read once per
   connection. That read has no length header and no chunk sequence numbers, so
   the component validates the length and the ASCII board code before trusting it
