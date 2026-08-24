@@ -99,12 +99,16 @@ text_sensor:
       name: "Upstairs State"
     model:
       name: "Upstairs Model"
+    firmware:
+      name: "Upstairs Firmware"
   - platform: easystart
     easystart_id: hub_downstairs
     system_state:
       name: "Downstairs State"
     model:
       name: "Downstairs Model"
+    firmware:
+      name: "Downstairs Firmware"
 
 binary_sensor:
   - platform: easystart

@@ -64,6 +64,8 @@ text_sensor:
       name: "EasyStart Model"
     firmware:
       name: "EasyStart Firmware"
+    firmware:
+      name: "EasyStart Firmware"
 
 binary_sensor:
   - platform: easystart
