@@ -4,6 +4,7 @@
 
 #include "esphome/core/log.h"
 #include <cinttypes>
+#include <cmath>
 #include <cstring>
 
 namespace esphome {
@@ -28,7 +29,26 @@ static uint32_t le32(const uint8_t *p) {
   return (uint32_t) p[0] | ((uint32_t) p[1] << 8) | ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24);
 }
 
-void EasyStart::setup() { this->mark_unavailable_(); }
+void EasyStart::setup() {
+  // Key the saved values to the unit's MAC so they follow the hardware rather
+  // than the order the hubs appear in the config.
+  this->pref_ = global_preferences->make_preference<EasyStartSticky>(
+      fnv1_hash(std::string("easystart_") + this->parent()->address_str()));
+  this->pref_.load(&this->sticky_);
+  this->mark_unavailable_();
+  this->publish_sticky_();
+}
+
+void EasyStart::publish_sticky_() {
+#ifdef USE_SENSOR
+  if (this->last_start_peak_ != nullptr && !std::isnan(this->sticky_.last_start_peak))
+    this->last_start_peak_->publish_state(this->sticky_.last_start_peak);
+  if (this->total_starts_ != nullptr && !std::isnan(this->sticky_.total_starts))
+    this->total_starts_->publish_state(this->sticky_.total_starts);
+  if (this->total_faults_ != nullptr && !std::isnan(this->sticky_.total_faults))
+    this->total_faults_->publish_state(this->sticky_.total_faults);
+#endif
+}
 
 void EasyStart::dump_config() {
   ESP_LOGCONFIG(TAG, "Micro-Air EasyStart:");
@@ -197,6 +217,12 @@ void EasyStart::publish_live_() {
     this->total_faults_->publish_state(le16(b + 12));
   if (this->total_starts_ != nullptr)
     this->total_starts_->publish_state(le32(b + 14));
+
+  EasyStartSticky sticky{le16(b + 8) / 10.0f, (float) le32(b + 14), (float) le16(b + 12)};
+  if (memcmp(&sticky, &this->sticky_, sizeof(sticky)) != 0) {
+    this->sticky_ = sticky;
+    this->pref_.save(&this->sticky_);
+  }
 #endif
 #ifdef USE_TEXT_SENSOR
   if (this->system_state_ != nullptr)
@@ -273,10 +299,9 @@ void EasyStart::mark_unavailable_() {
     if (s != nullptr)
       s->publish_state(0.0f);
   }
-  // last_start_peak_ is deliberately absent: it describes the last start, which
-  // is still true after the unit powers down.
-  sensor::Sensor *unknown[] = {this->learned_starts_, this->total_starts_, this->total_faults_,
-                               this->scpt_remaining_, this->state_code_};
+  // last_start_peak_ and the lifetime totals are deliberately absent: they
+  // describe things that already happened, so they keep their last value.
+  sensor::Sensor *unknown[] = {this->learned_starts_, this->scpt_remaining_, this->state_code_};
   for (auto *s : unknown) {
     if (s != nullptr)
       s->publish_state(NAN);

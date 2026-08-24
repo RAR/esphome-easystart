@@ -2,6 +2,7 @@
 
 #include "esphome/components/ble_client/ble_client.h"
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 
 #ifdef USE_ESP32
 
@@ -43,6 +44,14 @@ static const uint32_t READ_TIMEOUT_MS = 20000;
 
 enum class Pending : uint8_t { NONE, LIVE, EEP };
 
+// Values that describe something already done, kept across a reboot so they do
+// not read unknown for however long the A/C stays off.
+struct EasyStartSticky {
+  float last_start_peak;
+  float total_starts;
+  float total_faults;
+} __attribute__((packed));
+
 class EasyStart : public PollingComponent, public ble_client::BLEClientNode {
  public:
   void setup() override;
@@ -82,12 +91,16 @@ class EasyStart : public PollingComponent, public ble_client::BLEClientNode {
   void mark_unavailable_();
   bool eeprom_looks_sane_() const;
   void trim_status_tail_();
+  void publish_sticky_();
 
   // Handles only. Setting node_state to ESTABLISHED lets BLEClientBase free the
   // characteristic objects, so caching a BLECharacteristic* is a use-after-free.
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
   esp_gatt_write_type_t write_type_{ESP_GATT_WRITE_TYPE_RSP};
+
+  ESPPreferenceObject pref_;
+  EasyStartSticky sticky_{NAN, NAN, NAN};
 
   Pending pending_{Pending::NONE};
   uint32_t deadline_{0};

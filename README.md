@@ -110,7 +110,7 @@ Meanwhile:
 |---|---|
 | `current` | `0` A - the unit is drawing nothing |
 | `line_frequency` | `0` Hz - there is no line to measure |
-| `last_start_peak` | **retains** its last value |
+| `last_start_peak`, `total_starts`, `total_faults` | **retain** their last value |
 | other numeric sensors | `unknown` (the component publishes NaN) |
 | `system_state` | the string `Disconnected` |
 | `ble_client` RSSI | `unknown`, plus a warning each poll |
@@ -119,8 +119,13 @@ Meanwhile:
 
 `current` and `line_frequency` report 0 because that is physically what an
 unpowered unit reads, and it keeps the HA history graphs continuous.
-`last_start_peak` describes the last start the unit performed, which is still
-the last start once it powers down.
+`last_start_peak` and the lifetime totals describe things that already
+happened, so they hold rather than dropping to unknown.
+
+Those three are also saved to flash, keyed to the unit's MAC, and republished at
+boot - otherwise an OTA or a power blip would blank them for however long the
+A/C stays off, which for a seasonal unit can be months. They are written only
+when they change, so an idle poll costs no flash wear.
 
 ESPHome binary sensors have no unknown state, so `fault` stays at whatever it
 last published. Gate automations on `system_state != 'Disconnected'` rather
