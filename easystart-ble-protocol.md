@@ -275,3 +275,61 @@ detection on a compressor soft starter has real consequences.
 - As with any BLE device, a **custom integration** on HA's `bluetooth` stack fits
   better than an add-on; an add-on container has no direct access to HA's adapter
   management and would contend for the radio.
+
+---
+
+## 7. Vendor cloud services
+
+None of this is needed by the integration - the ESP32 only ever talks BLE. It is
+recorded because it answers "does the app phone home", and because the transport
+choices matter if you ever run the vendor app.
+
+### Firmware update check
+
+The app's `Update` tab checks two plain-HTTP files, then downloads the image:
+
+| URL | Contents |
+|---|---|
+| `http://easystart.microair.net/downloads/registration.txt` | one `EasyStart_XXXX,<version>` line per registered unit; gates whether an update is offered |
+| `http://easystart.microair.net/downloads/updates.txt` | one line per board family, fields below |
+| `http://easystart.microair.net/downloads/<hexFilename>` | the Intel HEX (or `.bin` for 399BT) pushed over the AVR OTA commands |
+
+`updates.txt` fields, indexed as `Update.updateAvail` reads them:
+
+```
+0: board family   (first 3 chars matched against 364/368/398/399)
+1: version
+2: low fuses      -> {"Cmd": WrtFsL=..}
+3: high fuses     -> {"Cmd": WrtFsH=..}
+4: ext fuses      -> {"Cmd": WrtFsE=..}
+5: lock bits      -> {"Cmd": WrtLkB=..}
+6: EEPROM filename
+7: HEX filename
+```
+
+Live as of 2026-08-24, serving `364ULBT-B29`, `368ULBT-B29`, `398ULBT-B37` and
+`399BT-C11-APP.bin`.
+
+The exact registration predicate is hard to state with confidence: jadx mangles
+the `readLine` loops in `Update` badly enough that the surrounding comparisons
+cannot be trusted. What is clear is that the decision keys on the advertised
+device name and a version byte compared against EEPROM[10].
+
+If startup mask bit 2 (*No Power-Up Delay*) is set, the app offers the update but
+warns that the unit may power down mid-write and be bricked, and tells you to
+call Micro-Air first.
+
+### Diagnostics upload
+
+`Diagnose` POSTs a multipart form to `http://easystart.microair.net/upload.php`
+containing customer name, email and phone from the form, the advertised device
+name as `easystart_id`, and the EEPROM dump as `easystart.eep`.
+
+### Transport caveat
+
+Every one of these is `http://`, not `https://`. Update metadata, the firmware
+image itself, and the diagnostics form (personal details included) all travel in
+clear text with no signature check beyond the per-line Intel HEX checksums. An
+attacker positioned on the network could serve arbitrary firmware to a soft
+starter wired into a compressor. Worth knowing; not something this component
+touches.
